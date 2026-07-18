@@ -3,7 +3,30 @@ import { api, type Screen } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { MarketCard } from "@/components/MarketCard"
 import { CandidateTable } from "@/components/CandidateTable"
-import { Loader2, Search, ChevronRight } from "lucide-react"
+import { Loader2, Search, ChevronRight, ExternalLink } from "lucide-react"
+
+const CHARTINK_SCANS = [
+  { label: "Quietly contracting (RC1)", slug: "ema-scan-2-7" },
+  { label: "Quietly contracting (RC2)", slug: "new-daily-2045" },
+  { label: "Big-buyer volume", slug: "ankur-s-volume-scan" },
+]
+
+function ChartinkButtons() {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-muted-foreground text-xs">Cross-check on Chartink:</span>
+      {CHARTINK_SCANS.map((s) => (
+        <a key={s.slug} href={`https://chartink.com/screener/${s.slug}`}
+           target="_blank" rel="noopener noreferrer">
+          <Button variant="outline" size="sm">
+            <ExternalLink className="size-3.5" />
+            {s.label}
+          </Button>
+        </a>
+      ))}
+    </div>
+  )
+}
 
 function Arrow() {
   return <ChevronRight className="text-muted-foreground size-4 shrink-0" />
@@ -71,6 +94,10 @@ export function App() {
           </Button>
         </div>
       </header>
+
+      <div className="mt-4">
+        <ChartinkButtons />
+      </div>
 
       {error && (
         <div className="mt-4 rounded-md bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400">
