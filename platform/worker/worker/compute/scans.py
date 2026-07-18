@@ -68,6 +68,8 @@ def snapshot_features(frame: pd.DataFrame) -> dict:
         "day_change_pct": (close / prev_close - 1) * 100 if prev_close else 0.0,
         "ema20": float(last["ema20"]),
         "ema50": float(last["ema50"]),
+        "ema200": float(last["ema200"]) if pd.notna(last.get("ema200")) else None,
+        "ema200_slope": float(last["ema200_slope"]) if pd.notna(last.get("ema200_slope")) else None,
         "volume": float(last["v"]),
         "vol_sma50": float(last["vol_sma50"]) if pd.notna(last["vol_sma50"]) else 0.0,
         "delivery_pct": float(last["delivery_pct"]) if "delivery_pct" in frame and pd.notna(last.get("delivery_pct")) else None,
@@ -113,7 +115,7 @@ class Scan:
     key: str
     label: str          # plain-language name for the UI
     role: str           # "watchlist" — MVP ships only these
-    source: str         # chartink slug, for the diff-import cross-check later
+    source: str | None  # chartink slug for the cross-check, or None if we have no source
     matches: Callable[[dict], bool]
 
 
@@ -133,6 +135,28 @@ def _ema20_pullback(r: dict) -> bool:
     return _liquid(r) and near_ema and r["volume"] > 100_000 and _momentum_ladder(r)
 
 
+def _stage2(r: dict) -> bool:
+    """Minervini's Stage 2 trend template (adapted to our EMAs): a confirmed uptrend.
+    Weekend prep scan — established leaders to build a watchlist from, not entries.
+
+      close > 50-line > 200-line   (uptrend stack)
+      200-line rising             (long-term trend up)
+      >= 30% above the 1-year low  (real advance, not just off the floor)
+      within 25% of the 1-year high (near highs = leadership)
+    """
+    e200 = r.get("ema200")
+    slope = r.get("ema200_slope")
+    if e200 is None or slope is None:
+        return False
+    return (
+        _liquid(r)
+        and r["close"] > r["ema50"] > e200
+        and slope > 0
+        and r["close"] >= r["low_11m"] * 1.30
+        and r.get("dist_52wh_pct", -999) >= -25.0
+    )
+
+
 def _three_week_tight_close(r: dict) -> bool:
     # Ankur's 3WTC — his most selective scan, the one the guide says to start with.
     # Last 3 weekly closes within ~3%, up 30% from the 3-month low, liquid.
@@ -143,6 +167,7 @@ def _three_week_tight_close(r: dict) -> bool:
     )
 
 
+# Daily scans — these feed the evening screen (run_all iterates exactly these).
 SCANS: dict[str, Scan] = {
     "three_week_tight": Scan("three_week_tight", "Resting tight for 3 weeks", "watchlist",
                              "3-week-tight-close-19", _three_week_tight_close),
@@ -151,6 +176,13 @@ SCANS: dict[str, Scan] = {
     "ema20_pullback": Scan("ema20_pullback", "Pulled back to its trend line", "watchlist",
                            "ankur-patel-s-20-ema-scan", _ema20_pullback),
 }
+
+# Weekend prep scans — run on demand, NOT part of the daily chain.
+WEEKEND_SCANS: dict[str, Scan] = {
+    "stage2": Scan("stage2", "Established uptrend (Stage 2)", "watchlist", None, _stage2),
+}
+
+ALL_SCANS: dict[str, Scan] = {**SCANS, **WEEKEND_SCANS}
 
 # Tightness gate — the contraction that turns a broad scan list into a reviewable
 # shortlist. This is the numeric stand-in for step-4 chart reading (base quality),
@@ -187,9 +219,9 @@ def run_scan(snapshot: pd.DataFrame, scan_key: str) -> pd.DataFrame:
     """Apply one scan to a universe snapshot (one row per symbol, snapshot_features
     fields as columns, `symbol` column present). Returns the passing subset,
     annotated with which scan matched."""
-    if scan_key not in SCANS:
-        raise ValueError(f"unknown scan {scan_key!r}; have {list(SCANS)}")
-    scan = SCANS[scan_key]
+    if scan_key not in ALL_SCANS:
+        raise ValueError(f"unknown scan {scan_key!r}; have {list(ALL_SCANS)}")
+    scan = ALL_SCANS[scan_key]
     mask = snapshot.apply(lambda row: scan.matches(row.to_dict()), axis=1)
     hit = snapshot[mask].copy()
     hit["scan"] = scan_key

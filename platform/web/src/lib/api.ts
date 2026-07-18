@@ -45,8 +45,18 @@ async function post<T>(path: string): Promise<T> {
   return r.json()
 }
 
+export type Routine = Record<string, string>  // item_id -> last_done ISO
+
+export type ScanResult = {
+  scan: string; label?: string; count: number; universe_size: number
+  results: { symbol: string; name?: string; sector?: string | null; close: number; dist_52wh_pct?: number }[]
+}
+
 export const api = {
   health: () => get<{ status: string }>("/health"),
   getScreen: () => get<Screen>("/screen"),
   runScreen: () => post<Screen>("/screen/run"),
+  getRoutine: () => get<Routine>("/routine"),
+  markDone: (id: string) => post<{ item_id: string; last_done: string }>(`/routine/${id}/done`),
+  runScan: (key: string) => post<ScanResult>(`/scan/${key}`),
 }

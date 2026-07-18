@@ -14,7 +14,7 @@ from worker.config import ACCOUNT_SIZE, RISK_PCT
 from worker.compute.filters import filter_junk
 from worker.compute.indicators import add_indicators
 from worker.compute.regime import assess_market, verdict_to_dict
-from worker.compute.scans import run_all, snapshot_features
+from worker.compute.scans import ALL_SCANS, run_all, run_scan, snapshot_features
 from worker.compute.trade_math import trade_forecast
 from worker.repo import load_all_recent, record_job, save_screen, symbol_meta
 from worker.sources import yahoo
@@ -36,13 +36,12 @@ def _breadth(snapshot: pd.DataFrame) -> float | None:
     return round((snapshot["close"] > snapshot["ema20"]).mean() * 100, 1)
 
 
-def run_screen(account: float = ACCOUNT_SIZE, risk_pct: float = RISK_PCT,
-               universe_limit: int | None = None) -> dict:
-    started = datetime.now(timezone.utc)
+def build_universe(universe_limit: int | None = None) -> tuple[pd.DataFrame, dict, int, int]:
+    """The screening universe as one snapshot row per symbol, after the pre-filter
+    (drop large caps + sub-MIN_PRICE). Shared by the daily screen and the on-demand
+    weekend scans. Returns (snapshot, frames, excl_large, excl_price)."""
     meta = symbol_meta()
-
-    # one batched read, not 500 round-trips (repo.load_all_recent)
-    all_frames = load_all_recent(limit=400)
+    all_frames = load_all_recent(limit=400)      # one batched read, not 500 round-trips
     rows, frames = [], {}
     excl_large = excl_price = 0
     for sym, df in all_frames.items():
@@ -50,9 +49,8 @@ def run_screen(account: float = ACCOUNT_SIZE, risk_pct: float = RISK_PCT,
             continue
         if universe_limit and len(frames) >= universe_limit:
             break
-        # universe pre-filter, BEFORE any scan:
-        #  - drop large caps (NIFTY 100) — swing trading targets faster mid/small caps
-        #  - drop anything priced below MIN_PRICE (penny/near-penny)
+        # pre-filter BEFORE any scan: drop large caps (NIFTY 100 — too slow for swing
+        # trading) and anything priced below MIN_PRICE (penny/near-penny).
         if meta[sym].get("tier") == "large":
             excl_large += 1
             continue
@@ -60,8 +58,7 @@ def run_screen(account: float = ACCOUNT_SIZE, risk_pct: float = RISK_PCT,
             excl_price += 1
             continue
         try:
-            ind = add_indicators(df)
-            feat = snapshot_features(ind)
+            feat = snapshot_features(add_indicators(df))
         except ValueError:
             continue
         feat["symbol"] = sym
@@ -70,8 +67,35 @@ def run_screen(account: float = ACCOUNT_SIZE, risk_pct: float = RISK_PCT,
         feat["name"] = meta[sym].get("name")
         rows.append(feat)
         frames[sym] = df
+    return pd.DataFrame(rows), frames, excl_large, excl_price
 
-    snapshot = pd.DataFrame(rows)
+
+def run_named_scan(scan_key: str) -> dict:
+    """Run one scan (daily or weekend) across the universe on demand. Used by the
+    routine panel — e.g. Stage 2. Returns count + the matching rows for display."""
+    started = datetime.now(timezone.utc)
+    snapshot, _frames, excl_large, excl_price = build_universe()
+    if snapshot.empty:
+        return {"scan": scan_key, "count": 0, "results": [], "universe_size": 0}
+    hits = run_scan(snapshot, scan_key)
+    hits = hits.sort_values("dist_52wh_pct", ascending=False) if "dist_52wh_pct" in hits else hits
+    results = [
+        {"symbol": r["symbol"], "name": r.get("name"), "sector": r.get("sector"),
+         "close": round(float(r["close"]), 2), "dist_52wh_pct": r.get("dist_52wh_pct")}
+        for _, r in hits.iterrows()
+    ]
+    record_job(f"scan:{scan_key}", "ok",
+               {"universe": len(snapshot), "hits": len(results)}, started=started)
+    return {"scan": scan_key, "label": ALL_SCANS[scan_key].label, "count": len(results),
+            "results": results, "universe_size": len(snapshot),
+            "excluded_largecap": excl_large, "excluded_price": excl_price}
+
+
+def run_screen(account: float = ACCOUNT_SIZE, risk_pct: float = RISK_PCT,
+               universe_limit: int | None = None) -> dict:
+    started = datetime.now(timezone.utc)
+
+    snapshot, frames, excl_large, excl_price = build_universe(universe_limit)
     market = _market()
     market["metrics"]["breadth_pct_above_20"] = _breadth(snapshot)
 

@@ -117,6 +117,21 @@ def tag_tiers(largecaps: set[str]) -> dict:
     return {"large": r.modified_count, "total": db.symbols.count_documents({})}
 
 
+def get_routine() -> dict[str, str]:
+    """{item_id: last_done_iso} for the routine checklist."""
+    db = get_db()
+    return {d["_id"]: d["last_done"].isoformat()
+            for d in db.routine.find({}, {"last_done": 1})}
+
+
+def mark_routine_done(item_id: str) -> str:
+    """Stamp an item done now; returns the ISO timestamp."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    db.routine.update_one({"_id": item_id}, {"$set": {"last_done": now}}, upsert=True)
+    return now.isoformat()
+
+
 def record_job(job: str, status: str, counts: dict, errors: list | None = None,
                started: datetime | None = None) -> None:
     db = get_db()

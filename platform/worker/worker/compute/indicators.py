@@ -88,6 +88,7 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
         out[f"ema{n}"] = ema(out["c"], n)
     out["ema20_slope"] = slope_pct_per_day(out["ema20"])
     out["ema50_slope"] = slope_pct_per_day(out["ema50"])
+    out["ema200_slope"] = slope_pct_per_day(out["ema200"])  # Stage 2: long-term line rising
     out["vol_sma50"] = out["v"].rolling(50).mean()
     out["rvol"] = out["v"] / out["vol_sma50"]
     out["adr_pct"] = average_daily_range_pct(out)
