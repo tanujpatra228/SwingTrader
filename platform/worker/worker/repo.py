@@ -104,8 +104,17 @@ def active_symbols() -> list[str]:
 def symbol_meta() -> dict[str, dict]:
     db = get_db()
     return {d["_id"]: {"sector": d.get("sector"), "name": d.get("name"),
-                       "mcap_cr": d.get("mcap_cr")}
-            for d in db.symbols.find({}, {"sector": 1, "name": 1, "mcap_cr": 1})}
+                       "mcap_cr": d.get("mcap_cr"), "tier": d.get("tier")}
+            for d in db.symbols.find({}, {"sector": 1, "name": 1, "mcap_cr": 1, "tier": 1})}
+
+
+def tag_tiers(largecaps: set[str]) -> dict:
+    """Mark NIFTY-100 symbols as 'large', everything else 'mid_small'. One-off tag,
+    re-runnable — the universe pre-filter (screen.py) reads it to exclude large caps."""
+    db = get_db()
+    db.symbols.update_many({}, {"$set": {"tier": "mid_small"}})
+    r = db.symbols.update_many({"_id": {"$in": list(largecaps)}}, {"$set": {"tier": "large"}})
+    return {"large": r.modified_count, "total": db.symbols.count_documents({})}
 
 
 def record_job(job: str, status: str, counts: dict, errors: list | None = None,

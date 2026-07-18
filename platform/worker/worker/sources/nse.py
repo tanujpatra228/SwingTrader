@@ -28,6 +28,8 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 # NIFTY 500 constituent list carries an "Industry" column — our sector source.
 INDEX_CONSTITUENTS = "https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv"
+# NIFTY 100 = large-cap (SEBI's top-100-by-mcap definition). Used to EXCLUDE large caps.
+NIFTY100_LIST = "https://nsearchives.nseindia.com/content/indices/ind_nifty100list.csv"
 
 
 def _session() -> requests.Session:
@@ -77,6 +79,21 @@ def fetch_sector_map(session: requests.Session | None = None) -> dict[str, str]:
     if "Symbol" not in df.columns or "Industry" not in df.columns:
         return {}
     return dict(zip(df["Symbol"].str.strip(), df["Industry"].str.strip()))
+
+
+def fetch_largecap_symbols(session: requests.Session | None = None) -> set[str]:
+    """NIFTY 100 members = large-cap (SEBI top-100-by-mcap). Empty set on failure
+    so the caller can decide whether to proceed without the exclusion."""
+    s = session or _session()
+    try:
+        raw = _get(s, NIFTY100_LIST, "ind_nifty100list.csv")
+    except requests.RequestException:
+        return set()
+    df = pd.read_csv(io.BytesIO(raw))
+    df.columns = [c.strip() for c in df.columns]
+    if "Symbol" not in df.columns:
+        return set()
+    return set(df["Symbol"].str.strip())
 
 
 def fetch_bhavcopy(day: date, session: requests.Session | None = None) -> pd.DataFrame:

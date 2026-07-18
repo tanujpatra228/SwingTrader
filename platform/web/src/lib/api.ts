@@ -28,6 +28,7 @@ export type Market = {
 export type Screen = {
   market: Market; candidates: Candidate[]; dropped_summary: Record<string, number>
   universe_size: number; scan_hits?: number; after_junk?: number
+  excluded_largecap?: number; excluded_price?: number; min_price?: number
   account: number; risk_pct: number
 }
 

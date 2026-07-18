@@ -19,6 +19,8 @@ from worker.compute.trade_math import trade_forecast
 from worker.repo import load_all_recent, record_job, save_screen, symbol_meta
 from worker.sources import yahoo
 
+MIN_PRICE = 99.0            # drop anything priced below this, before any scan
+
 
 def _market() -> dict:
     """Step 1 — from NIFTY via yfinance (one symbol, no universe needed)."""
@@ -42,11 +44,21 @@ def run_screen(account: float = ACCOUNT_SIZE, risk_pct: float = RISK_PCT,
     # one batched read, not 500 round-trips (repo.load_all_recent)
     all_frames = load_all_recent(limit=400)
     rows, frames = [], {}
+    excl_large = excl_price = 0
     for sym, df in all_frames.items():
         if sym not in meta or len(df) < 60:
             continue
         if universe_limit and len(frames) >= universe_limit:
             break
+        # universe pre-filter, BEFORE any scan:
+        #  - drop large caps (NIFTY 100) — swing trading targets faster mid/small caps
+        #  - drop anything priced below MIN_PRICE (penny/near-penny)
+        if meta[sym].get("tier") == "large":
+            excl_large += 1
+            continue
+        if float(df["c"].iloc[-1]) < MIN_PRICE:
+            excl_price += 1
+            continue
         try:
             ind = add_indicators(df)
             feat = snapshot_features(ind)
@@ -67,7 +79,9 @@ def run_screen(account: float = ACCOUNT_SIZE, risk_pct: float = RISK_PCT,
     hits = run_all(snapshot) if not snapshot.empty else snapshot
     if hits.empty:
         result = {"market": market, "candidates": [], "dropped_summary": {},
-                  "universe_size": len(snapshot), "scan_hits": 0, "after_junk": 0,
+                  "universe_size": len(snapshot), "excluded_largecap": excl_large,
+                  "excluded_price": excl_price, "min_price": MIN_PRICE,
+                  "scan_hits": 0, "after_junk": 0,
                   "account": account, "risk_pct": risk_pct}
         save_screen(result)
         record_job("screen", "ok", {"universe": len(snapshot), "candidates": 0}, started=started)
@@ -113,6 +127,9 @@ def run_screen(account: float = ACCOUNT_SIZE, risk_pct: float = RISK_PCT,
         "candidates": candidates,
         "dropped_summary": filtered.summary,
         "universe_size": len(snapshot),
+        "excluded_largecap": excl_large,
+        "excluded_price": excl_price,
+        "min_price": MIN_PRICE,
         "scan_hits": len(hits),
         "after_junk": after_scan_filter,
         "account": account,
@@ -120,11 +137,12 @@ def run_screen(account: float = ACCOUNT_SIZE, risk_pct: float = RISK_PCT,
     }
     save_screen(result)
     record_job("screen", "ok",
-               {"universe": len(snapshot), "hits": len(hits),
-                "after_junk": after_scan_filter, "candidates": len(candidates)},
+               {"universe": len(snapshot), "excl_large": excl_large, "excl_price": excl_price,
+                "hits": len(hits), "after_junk": after_scan_filter, "candidates": len(candidates)},
                started=started)
-    print(f"screen: universe {len(snapshot)} -> scans {len(hits)} -> junk {after_scan_filter} "
-          f"-> tight {len(candidates)} | market {market['verdict'].upper()}")
+    print(f"screen: excluded {excl_large} large-cap + {excl_price} under Rs{MIN_PRICE:.0f} "
+          f"-> universe {len(snapshot)} -> scans {len(hits)} -> junk {after_scan_filter} "
+          f"-> candidates {len(candidates)} | market {market['verdict'].upper()}")
     return result
 
 

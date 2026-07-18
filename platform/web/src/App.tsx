@@ -88,6 +88,13 @@ export function App() {
         <div className="mt-5 space-y-5">
           <MarketCard market={screen.market} learn={learn} />
 
+          {(screen.excluded_largecap || screen.excluded_price) ? (
+            <p className="text-muted-foreground text-xs">
+              Set aside before searching: <strong>{screen.excluded_largecap ?? 0}</strong> big
+              companies (they move too slowly) and <strong>{screen.excluded_price ?? 0}</strong> priced
+              under ₹{screen.min_price ?? 99}.
+            </p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <FunnelStep n="2" label="Searched" value={screen.universe_size} unit="stocks" />
             <Arrow />
