@@ -22,6 +22,25 @@ Compiled from public sources (X threads, course listings, interviews) — not fr
 - Tightness/contraction before a breakout = quality setup (range contraction → expansion cycle).
 - Tools: TradingView scans, Base Finder indicator for consolidation detection.
 
+## Momentum Stage Framework (from "Build a Momentum Watchlist" video)
+
+Every stock in an uptrend falls into one of three stages. Identifying the stage determines your action:
+
+| Stage | Description | Action |
+|---|---|---|
+| **Emerging** | Just broke out of base — day 1 or 2 | Add to radar. Do NOT buy yet. Wait for tight range to form. Cannot pre-empt. |
+| **Established** | Moved from base, had first pullback/flag, now consolidating again | Primary target. Can pre-empt (buy at 20 EMA pullback before next breakout). EOD entries work. Most money made here. |
+| **Late stage** | 70–100%+ run, 3rd or 4th flag done | Avoid new positions. If forced: target 8–10% only, sell 70–80% immediately. |
+
+**Late stage behavior after peak:** 8–12 weeks of consolidation, 20–40% price correction, 20 EMA cut multiple times. Not tradeable until fresh base forms.
+
+**Watchlist rule:** include Emerging (track) + Established (trade). Remove Late stage.
+
+### Momentum scan key condition
+- **90 days, 30% move = mandatory filter. Never remove this.**
+- For monthly/weekly watchlist building: turn off the daily 4.5% candle filter (want all stocks, not just today's movers)
+- Monthly scanning is valid — build once, stocks stay relevant for weeks
+
 ## Stop Loss
 
 - Place the stop below the **pivot low** of the base, plus a 0.5–1% buffer to avoid wick-outs.

@@ -59,9 +59,17 @@ Run this: **every evening, as a watchlist-building reference.**
 ### Scan E — Stocks already moving strongly
 **Link:** chartink.com/screener/momentum-stocks-797
 
-What it finds: stocks that have risen 20%+ in the last 5 days or 30%+ in the last 30 days. These are already in momentum. You won't buy them directly from this scan — you use this list to find which **sectors** are leading right now. If Defence stocks dominate this list, Defence is the hot sector this week.
+What it finds: stocks that have risen strongly in recent months. The **key condition** in this scan is: rose 30%+ in the last 90 days. That is the filter that matters — do not change it.
 
-Run this: **every evening, as a sector-reference only.**
+Two uses:
+1. **Sector reference** — which sectors dominate this list? Those are the hot sectors right now. Buy stocks from those sectors, not from weak ones.
+2. **Momentum watchlist** — once a month (or once a week), go through this full list and sort each stock into: just broke out (track it), already trending (potential entry), or ran too much (skip).
+
+**Important:** do NOT buy directly from this scan. Stocks here may be at any stage — early, middle, or late in their move. You must check the chart (Step 4) to know which stage they are in.
+
+Run this: **every evening for sector reference. Once a week or once a month for full momentum watchlist building.**
+
+**Note:** if you are doing a monthly watchlist scan (not daily), turn off the "last candle 4.5%" filter in the scan settings — you want all momentum stocks, not just today's movers.
 
 ---
 

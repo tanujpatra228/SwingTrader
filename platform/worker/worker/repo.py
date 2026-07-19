@@ -77,13 +77,15 @@ def load_candles(symbol: str, limit: int = 400) -> pd.DataFrame:
     return df[keep]
 
 
-def load_all_recent(limit: int = 400) -> dict[str, pd.DataFrame]:
+def load_all_recent(limit: int = 400, symbols: list[str] | None = None) -> dict[str, pd.DataFrame]:
     """Every symbol's recent candles in ONE query, grouped in memory. Replaces 500
     per-symbol round-trips to Atlas (which took ~3 min) with a single scan (~seconds).
-    Returns {symbol: ascending compute-ready frame}."""
+    Pass `symbols` to restrict to a list (e.g. a pasted Chartink import) instead of
+    the whole DB. Returns {symbol: ascending compute-ready frame}."""
     db = get_db()
+    query = {"symbol": {"$in": symbols}} if symbols else {}
     cur = db.candles.find(
-        {}, {"symbol": 1, "date": 1, "o": 1, "h": 1, "l": 1, "c": 1, "v": 1, "delivery_pct": 1}
+        query, {"symbol": 1, "date": 1, "o": 1, "h": 1, "l": 1, "c": 1, "v": 1, "delivery_pct": 1}
     ).sort([("symbol", 1), ("date", 1)])
     frames: dict[str, list] = {}
     for d in cur:

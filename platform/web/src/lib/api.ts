@@ -39,8 +39,14 @@ async function get<T>(path: string): Promise<T | null> {
   return r.json()
 }
 
-async function post<T>(path: string): Promise<T> {
-  const r = await fetch(`/api${path}`, { method: "POST" })
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  const r = await fetch(`/api${path}`, {
+    method: "POST",
+    ...(body !== undefined && {
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  })
   if (!r.ok) throw new Error(`${path}: ${r.status}`)
   return r.json()
 }
@@ -52,6 +58,16 @@ export type ScanResult = {
   results: { symbol: string; name?: string; sector?: string | null; close: number; dist_52wh_pct?: number }[]
 }
 
+export type ImportedSymbol = {
+  symbol: string; name?: string; sector?: string | null
+  close: number; above_ema50: boolean | null
+  industry_trending: boolean | null; industry_pct_above_50: number | null
+  tier?: string | null
+}
+export type LookupResult = {
+  requested: number; found: number; not_found: string[]; rows: ImportedSymbol[]
+}
+
 export const api = {
   health: () => get<{ status: string }>("/health"),
   getScreen: () => get<Screen>("/screen"),
@@ -59,4 +75,5 @@ export const api = {
   getRoutine: () => get<Routine>("/routine"),
   markDone: (id: string) => post<{ item_id: string; last_done: string }>(`/routine/${id}/done`),
   runScan: (key: string) => post<ScanResult>(`/scan/${key}`),
+  lookupSymbols: (symbols: string[]) => post<LookupResult>("/symbols/lookup", { symbols }),
 }

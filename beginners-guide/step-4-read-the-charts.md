@@ -74,6 +74,30 @@ Strong rise → quiet sideways rest (tight range, low volume) → that's your se
 
 ---
 
+## Which stage is the stock in? (Ankur's 3 momentum types)
+
+Not all stocks in an uptrend are equally worth buying. Before adding a stock to your watchlist, identify which stage it is in:
+
+**Stage 1 — Emerging momentum:**
+- Stock just broke out of a base for the first time today or yesterday
+- Big green candle, high volume — the move just started
+- Do NOT buy immediately. Add to radar. Wait for it to rest and form a new tight range (3–7 days of small moves). Then watch for the next breakout.
+
+**Stage 2 — Established momentum (this is where you make the most money):**
+- Stock already moved up from its base, had one pullback or consolidation, and is now forming another tight range
+- Trend is confirmed. Structure is clean. Volume contracted during rest.
+- This is your primary target. Enter at EMA pullback or next breakout.
+
+**Stage 3 — Late stage (avoid for new positions):**
+- Stock already ran 70–100%+ from its original base
+- Multiple flags already done (3rd or 4th consolidation)
+- Risk-reward no longer works. Volatility is high. Stop-loss will be far.
+- After a late-stage stock peaks: expect 8–12 weeks of messy consolidation, 20–40% correction, and the 20 EMA getting cut multiple times. Only tradeable again after a fresh base forms.
+
+**Simple rule: build your watchlist from Stage 1 (radar only) and Stage 2 (active entries). Remove Stage 3.**
+
+---
+
 ## Sorting your list
 
 After checking all 5–12 stocks, sort them into two groups:

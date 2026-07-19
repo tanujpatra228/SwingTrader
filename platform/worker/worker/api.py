@@ -11,11 +11,17 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from worker.compute.scans import ALL_SCANS
 from worker.db import ping
+from worker.jobs.lookup import lookup_symbols
 from worker.jobs.screen import run_named_scan, run_screen
 from worker.repo import get_routine, latest_screen, mark_routine_done
+
+
+class SymbolsBody(BaseModel):
+    symbols: list[str]
 
 app = FastAPI(title="StokeBroker worker", version="0.1.0")
 
@@ -66,6 +72,13 @@ def run_scan_endpoint(scan_key: str) -> dict:
     if scan_key not in ALL_SCANS:
         raise HTTPException(404, f"unknown scan {scan_key!r}")
     return run_named_scan(scan_key)
+
+
+@app.post("/symbols/lookup")
+def symbols_lookup(body: SymbolsBody) -> dict:
+    """Enrich a pasted symbol list (e.g. copied from a Chartink scan) with name,
+    price, and industry-trend, for the Weekly Prep import table."""
+    return lookup_symbols(body.symbols)
 
 
 @app.get("/routine")
