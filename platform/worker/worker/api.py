@@ -17,11 +17,20 @@ from worker.compute.scans import ALL_SCANS
 from worker.db import ping
 from worker.jobs.lookup import lookup_symbols
 from worker.jobs.screen import run_named_scan, run_screen
-from worker.repo import get_routine, latest_screen, mark_routine_done
+from worker.repo import (
+    add_to_watchlist, delete_import, get_import, get_routine, get_watchlist,
+    latest_screen, list_imports, mark_routine_done, remove_from_watchlist, save_import,
+)
 
 
 class SymbolsBody(BaseModel):
     symbols: list[str]
+
+
+class SaveImportBody(BaseModel):
+    name: str
+    source: str
+    rows: list[dict]
 
 app = FastAPI(title="StokeBroker worker", version="0.1.0")
 
@@ -79,6 +88,56 @@ def symbols_lookup(body: SymbolsBody) -> dict:
     """Enrich a pasted symbol list (e.g. copied from a Chartink scan) with name,
     price, and industry-trend, for the Weekly Prep import table."""
     return lookup_symbols(body.symbols)
+
+
+@app.post("/imports")
+def imports_save(body: SaveImportBody) -> dict:
+    """Save a Weekly Prep import (CSV rows or a paste-lookup result) under a name
+    the user chose, so it can be reopened later."""
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    return save_import(body.name.strip(), body.source, body.rows)
+
+
+@app.get("/imports")
+def imports_list() -> list[dict]:
+    """Saved imports, newest first — no row data, just the index."""
+    return list_imports()
+
+
+@app.get("/imports/{import_id}")
+def imports_get(import_id: str) -> dict:
+    doc = get_import(import_id)
+    if not doc:
+        raise HTTPException(404, f"no saved import {import_id!r}")
+    return doc
+
+
+@app.delete("/imports/{import_id}")
+def imports_delete(import_id: str) -> dict:
+    ok = delete_import(import_id)
+    if not ok:
+        raise HTTPException(404, f"no saved import {import_id!r}")
+    return {"deleted": import_id}
+
+
+@app.get("/watchlist")
+def watchlist_list() -> list[dict]:
+    """Bookmarked symbols, newest first."""
+    return get_watchlist()
+
+
+@app.post("/watchlist/{symbol}")
+def watchlist_add(symbol: str) -> dict:
+    return add_to_watchlist(symbol)
+
+
+@app.delete("/watchlist/{symbol}")
+def watchlist_remove(symbol: str) -> dict:
+    ok = remove_from_watchlist(symbol)
+    if not ok:
+        raise HTTPException(404, f"{symbol!r} not in watchlist")
+    return {"symbol": symbol.strip().upper(), "removed": True}
 
 
 @app.get("/routine")

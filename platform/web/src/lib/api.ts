@@ -68,6 +68,17 @@ export type LookupResult = {
   requested: number; found: number; not_found: string[]; rows: ImportedSymbol[]
 }
 
+export type SavedImportSummary = {
+  id: string; name: string; source: string; row_count: number; created_at: string
+}
+export type SavedImportFull = SavedImportSummary & { rows: Record<string, unknown>[] }
+
+async function del<T>(path: string): Promise<T> {
+  const r = await fetch(`/api${path}`, { method: "DELETE" })
+  if (!r.ok) throw new Error(`${path}: ${r.status}`)
+  return r.json()
+}
+
 export const api = {
   health: () => get<{ status: string }>("/health"),
   getScreen: () => get<Screen>("/screen"),
@@ -76,4 +87,12 @@ export const api = {
   markDone: (id: string) => post<{ item_id: string; last_done: string }>(`/routine/${id}/done`),
   runScan: (key: string) => post<ScanResult>(`/scan/${key}`),
   lookupSymbols: (symbols: string[]) => post<LookupResult>("/symbols/lookup", { symbols }),
+  saveImport: (name: string, source: string, rows: unknown[]) =>
+    post<{ id: string; name: string; row_count: number; created_at: string }>("/imports", { name, source, rows }),
+  listImports: () => get<SavedImportSummary[]>("/imports"),
+  getImport: (id: string) => get<SavedImportFull>(`/imports/${id}`),
+  deleteImport: (id: string) => del<{ deleted: string }>(`/imports/${id}`),
+  getWatchlist: () => get<{ symbol: string; added_at: string }[]>("/watchlist"),
+  addToWatchlist: (symbol: string) => post<{ symbol: string; added_at: string }>(`/watchlist/${symbol}`),
+  removeFromWatchlist: (symbol: string) => del<{ symbol: string; removed: boolean }>(`/watchlist/${symbol}`),
 }

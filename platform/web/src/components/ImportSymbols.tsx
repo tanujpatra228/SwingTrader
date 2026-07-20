@@ -1,14 +1,39 @@
-import { useMemo, useRef, useState } from "react"
-import { api, type ImportedSymbol, type LookupResult } from "@/lib/api"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { api, type ImportedSymbol, type LookupResult, type SavedImportSummary } from "@/lib/api"
 import { parseChartinkCsv, parseSymbolInput, type CsvRow } from "@/lib/csv"
 import { nextSortDir, sortRows, type SortDir } from "@/lib/tableSort"
+import { usePagination } from "@/lib/pagination"
+import { useWatchlist } from "@/lib/watchlist"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Upload, FileUp, Loader2, ExternalLink, TrendingUp, TrendingDown, Minus,
-  ArrowUp, ArrowDown, ChevronsUpDown, X,
+  ArrowUp, ArrowDown, ChevronsUpDown, X, Save, FolderOpen, Trash2, Check,
+  Bookmark, BookmarkCheck, ChevronLeft, ChevronRight,
 } from "lucide-react"
+
+/** "Jul 14–18 import" — this week's Mon-Fri, editable before saving. */
+function defaultImportName(): string {
+  const now = new Date()
+  const day = now.getDay()
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - ((day + 6) % 7))
+  const friday = new Date(monday)
+  friday.setDate(monday.getDate() + 4)
+  const fmt = (d: Date) => d.toLocaleDateString("en-IN", { month: "short", day: "numeric" })
+  return `${fmt(monday)}–${fmt(friday)} import`
+}
+
+function relativeDate(iso: string): string {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins} min ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return days === 1 ? "yesterday" : `${days} days ago`
+}
 
 function tradingViewUrl(symbol: string): string {
   return `https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(symbol)}`
@@ -36,6 +61,23 @@ function IndustryTrend({ row }: { row: ImportedSymbol }) {
     <span className="text-muted-foreground inline-flex items-center gap-1">
       <TrendingDown className="size-3.5" />{pct}%
     </span>
+  )
+}
+
+function BookmarkCell({ symbol, watchlist, onToggle }: {
+  symbol: string; watchlist: Set<string>; onToggle: (symbol: string) => void
+}) {
+  const on = watchlist.has(symbol)
+  return (
+    <td className="w-8 px-2 py-1.5 text-center">
+      <button
+        onClick={() => onToggle(symbol)}
+        title={on ? "Remove from watchlist" : "Add to watchlist"}
+        className={cn("transition-colors", on ? "text-amber-500" : "text-muted-foreground/50 hover:text-muted-foreground")}
+      >
+        {on ? <BookmarkCheck className="size-4 fill-amber-500/20" /> : <Bookmark className="size-4" />}
+      </button>
+    </td>
   )
 }
 
@@ -75,12 +117,13 @@ function SortTh<K extends string>({ label, sortKey, activeKey, dir, onSort, alig
   )
 }
 
-function Toolbar({ search, onSearch, filters, count, total, onClear }: {
+function Toolbar({ search, onSearch, filters, count, total, onClear, watchlistOnly, onToggleWatchlistOnly }: {
   search: string; onSearch: (v: string) => void
   filters: { label: string; value: string; onChange: (v: string) => void; options: string[] }[]
   count: number; total: number; onClear: () => void
+  watchlistOnly: boolean; onToggleWatchlistOnly: () => void
 }) {
-  const active = search !== "" || filters.some((f) => f.value !== "all")
+  const active = search !== "" || filters.some((f) => f.value !== "all") || watchlistOnly
   return (
     <div className="flex flex-wrap items-center gap-2 border-b p-3">
       <input
@@ -96,6 +139,10 @@ function Toolbar({ search, onSearch, filters, count, total, onClear }: {
           {f.options.map((o) => <option key={o} value={o} className="capitalize">{o}</option>)}
         </select>
       ))}
+      <Button variant={watchlistOnly ? "default" : "outline"} size="sm" onClick={onToggleWatchlistOnly}>
+        {watchlistOnly ? <BookmarkCheck className="size-3.5" /> : <Bookmark className="size-3.5" />}
+        Watchlist
+      </Button>
       <span className="text-muted-foreground text-xs whitespace-nowrap">{count} of {total}</span>
       {active && (
         <Button variant="ghost" size="sm" onClick={onClear}><X className="size-3.5" />Clear</Button>
@@ -104,12 +151,30 @@ function Toolbar({ search, onSearch, filters, count, total, onClear }: {
   )
 }
 
+function Pager({ page, pageCount, onPage }: { page: number; pageCount: number; onPage: (p: number) => void }) {
+  if (pageCount <= 1) return null
+  return (
+    <div className="flex items-center justify-end gap-2 border-t px-3 py-2">
+      <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+        <ChevronLeft className="size-3.5" />
+      </Button>
+      <span className="text-muted-foreground text-xs">Page {page} of {pageCount}</span>
+      <Button variant="outline" size="sm" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>
+        <ChevronRight className="size-3.5" />
+      </Button>
+    </div>
+  )
+}
+
 /** Straight from the Chartink export — no lookup against our own data, so this
  * renders instantly and shows exactly what Chartink gave us (as of export time). */
-function CsvTable({ rows }: { rows: CsvRow[] }) {
+function CsvTable({ rows, watchlist, onToggleWatchlist }: {
+  rows: CsvRow[]; watchlist: Set<string>; onToggleWatchlist: (symbol: string) => void
+}) {
   const [search, setSearch] = useState("")
   const [sector, setSector] = useState("all")
   const [cap, setCap] = useState("all")
+  const [watchlistOnly, setWatchlistOnly] = useState(false)
   const [sortKey, setSortKey] = useState<keyof CsvRow | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>(null)
 
@@ -121,12 +186,14 @@ function CsvTable({ rows }: { rows: CsvRow[] }) {
     return rows.filter((r) => {
       if (sector !== "all" && r.sector !== sector) return false
       if (cap !== "all" && r.marketcap !== cap) return false
+      if (watchlistOnly && !watchlist.has(r.symbol)) return false
       if (q && !r.symbol.toLowerCase().includes(q) && !(r.name ?? "").toLowerCase().includes(q)) return false
       return true
     })
-  }, [rows, sector, cap, search])
+  }, [rows, sector, cap, watchlistOnly, watchlist, search])
 
   const sorted = useMemo(() => sortRows(filtered, sortKey, sortDir), [filtered, sortKey, sortDir])
+  const { page, pageCount, pageRows, setPage } = usePagination(sorted)
 
   function onSort(key: keyof CsvRow) {
     if (sortKey !== key) { setSortKey(key); setSortDir("asc"); return }
@@ -135,7 +202,7 @@ function CsvTable({ rows }: { rows: CsvRow[] }) {
     if (!next) setSortKey(null)
   }
 
-  function clear() { setSearch(""); setSector("all"); setCap("all") }
+  function clear() { setSearch(""); setSector("all"); setCap("all"); setWatchlistOnly(false) }
 
   return (
     <Card>
@@ -145,6 +212,7 @@ function CsvTable({ rows }: { rows: CsvRow[] }) {
           { label: "industries", value: sector, onChange: setSector, options: sectors },
           { label: "caps", value: cap, onChange: setCap, options: caps },
         ]}
+        watchlistOnly={watchlistOnly} onToggleWatchlistOnly={() => setWatchlistOnly((v) => !v)}
         count={sorted.length} total={rows.length} onClear={clear}
       />
       <CardContent className="p-0">
@@ -152,6 +220,7 @@ function CsvTable({ rows }: { rows: CsvRow[] }) {
           <table className="w-full text-sm">
             <thead className="bg-muted/60 text-muted-foreground sticky top-0 text-xs">
               <tr>
+                <th className="w-8"></th>
                 <th className="w-10 px-3 py-2 text-left font-medium">#</th>
                 <SortTh label="Stock" sortKey="symbol" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortTh label="Industry" sortKey="sector" activeKey={sortKey} dir={sortDir} onSort={onSort} />
@@ -162,9 +231,10 @@ function CsvTable({ rows }: { rows: CsvRow[] }) {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((r, i) => (
+              {pageRows.map((r, i) => (
                 <tr key={r.symbol + i} className="border-t">
-                  <td className="text-muted-foreground px-3 py-1.5">{i + 1}</td>
+                  <BookmarkCell symbol={r.symbol} watchlist={watchlist} onToggle={onToggleWatchlist} />
+                  <td className="text-muted-foreground px-3 py-1.5">{(page - 1) * 10 + i + 1}</td>
                   <StockCell symbol={r.symbol} name={r.name} />
                   <td className="text-muted-foreground px-3 py-1.5">{r.sector ?? "—"}</td>
                   <td className="text-muted-foreground px-3 py-1.5">{r.marketcap ?? "—"}</td>
@@ -182,11 +252,12 @@ function CsvTable({ rows }: { rows: CsvRow[] }) {
                 </tr>
               ))}
               {sorted.length === 0 && (
-                <tr><td colSpan={7} className="text-muted-foreground px-3 py-6 text-center">No matches.</td></tr>
+                <tr><td colSpan={8} className="text-muted-foreground px-3 py-6 text-center">No matches.</td></tr>
               )}
             </tbody>
           </table>
         </div>
+        <Pager page={page} pageCount={pageCount} onPage={setPage} />
       </CardContent>
     </Card>
   )
@@ -194,10 +265,13 @@ function CsvTable({ rows }: { rows: CsvRow[] }) {
 
 /** From a plain symbol paste (no attached data) — we look up price/sector/trend
  * against our own DB, since the paste carries nothing but names. */
-function LookupTable({ result }: { result: LookupResult }) {
+function LookupTable({ result, watchlist, onToggleWatchlist }: {
+  result: LookupResult; watchlist: Set<string>; onToggleWatchlist: (symbol: string) => void
+}) {
   const [search, setSearch] = useState("")
   const [sector, setSector] = useState("all")
   const [trend, setTrend] = useState("all")
+  const [watchlistOnly, setWatchlistOnly] = useState(false)
   const [sortKey, setSortKey] = useState<keyof ImportedSymbol | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>(null)
 
@@ -209,12 +283,14 @@ function LookupTable({ result }: { result: LookupResult }) {
       if (sector !== "all" && r.sector !== sector) return false
       if (trend === "trending" && r.industry_trending !== true) return false
       if (trend === "weak" && r.industry_trending !== false) return false
+      if (watchlistOnly && !watchlist.has(r.symbol)) return false
       if (q && !r.symbol.toLowerCase().includes(q) && !(r.name ?? "").toLowerCase().includes(q)) return false
       return true
     })
-  }, [result.rows, sector, trend, search])
+  }, [result.rows, sector, trend, watchlistOnly, watchlist, search])
 
   const sorted = useMemo(() => sortRows(filtered, sortKey, sortDir), [filtered, sortKey, sortDir])
+  const { page, pageCount, pageRows, setPage } = usePagination(sorted)
 
   function onSort(key: keyof ImportedSymbol) {
     if (sortKey !== key) { setSortKey(key); setSortDir("asc"); return }
@@ -223,7 +299,7 @@ function LookupTable({ result }: { result: LookupResult }) {
     if (!next) setSortKey(null)
   }
 
-  function clear() { setSearch(""); setSector("all"); setTrend("all") }
+  function clear() { setSearch(""); setSector("all"); setTrend("all"); setWatchlistOnly(false) }
 
   return (
     <Card>
@@ -233,6 +309,7 @@ function LookupTable({ result }: { result: LookupResult }) {
           { label: "industries", value: sector, onChange: setSector, options: sectors },
           { label: "trend", value: trend, onChange: setTrend, options: ["trending", "weak"] },
         ]}
+        watchlistOnly={watchlistOnly} onToggleWatchlistOnly={() => setWatchlistOnly((v) => !v)}
         count={sorted.length} total={result.rows.length} onClear={clear}
       />
       <CardContent className="p-0">
@@ -240,6 +317,7 @@ function LookupTable({ result }: { result: LookupResult }) {
           <table className="w-full text-sm">
             <thead className="bg-muted/60 text-muted-foreground sticky top-0 text-xs">
               <tr>
+                <th className="w-8"></th>
                 <th className="w-10 px-3 py-2 text-left font-medium">#</th>
                 <SortTh label="Stock" sortKey="symbol" activeKey={sortKey} dir={sortDir} onSort={onSort} />
                 <SortTh label="Industry" sortKey="sector" activeKey={sortKey} dir={sortDir} onSort={onSort} />
@@ -249,9 +327,10 @@ function LookupTable({ result }: { result: LookupResult }) {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((r, i) => (
+              {pageRows.map((r, i) => (
                 <tr key={r.symbol} className="border-t">
-                  <td className="text-muted-foreground px-3 py-1.5">{i + 1}</td>
+                  <BookmarkCell symbol={r.symbol} watchlist={watchlist} onToggle={onToggleWatchlist} />
+                  <td className="text-muted-foreground px-3 py-1.5">{(page - 1) * 10 + i + 1}</td>
                   <StockCell symbol={r.symbol} name={r.name} />
                   <td className="text-muted-foreground px-3 py-1.5">{r.sector ?? "—"}</td>
                   <td className="px-3 py-1.5"><IndustryTrend row={r} /></td>
@@ -268,11 +347,59 @@ function LookupTable({ result }: { result: LookupResult }) {
                 </tr>
               ))}
               {sorted.length === 0 && (
-                <tr><td colSpan={6} className="text-muted-foreground px-3 py-6 text-center">No matches.</td></tr>
+                <tr><td colSpan={7} className="text-muted-foreground px-3 py-6 text-center">No matches.</td></tr>
               )}
             </tbody>
           </table>
         </div>
+        <Pager page={page} pageCount={pageCount} onPage={setPage} />
+      </CardContent>
+    </Card>
+  )
+}
+
+function SaveBar({ suggestedName, onSave, saving, saved }: {
+  suggestedName: string; onSave: (name: string) => void; saving: boolean; saved: boolean
+}) {
+  const [name, setName] = useState(suggestedName)
+  return (
+    <div className="flex items-center gap-2">
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name this import…"
+             className={cn(fieldClass, "min-w-[220px] flex-1 max-w-sm")} />
+      <Button size="sm" onClick={() => onSave(name)} disabled={saving || !name.trim()}>
+        {saving ? <Loader2 className="size-3.5 animate-spin" /> : saved ? <Check className="size-3.5" /> : <Save className="size-3.5" />}
+        {saving ? "Saving…" : saved ? "Saved" : "Save for later"}
+      </Button>
+    </div>
+  )
+}
+
+function SavedImportsList({ imports, onLoad, onDelete, loadingId }: {
+  imports: SavedImportSummary[]; onLoad: (id: string) => void; onDelete: (id: string) => void
+  loadingId: string | null
+}) {
+  if (imports.length === 0) return null
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Saved imports</CardTitle>
+      </CardHeader>
+      <CardContent className="divide-y p-0">
+        {imports.map((imp) => (
+          <div key={imp.id} className="flex items-center gap-2 px-4 py-2">
+            <FolderOpen className="text-muted-foreground size-4 shrink-0" />
+            <span className="flex-1 truncate text-sm font-medium">{imp.name}</span>
+            <span className="text-muted-foreground text-xs">
+              {imp.row_count} stocks · {imp.source === "csv" ? "CSV" : "pasted"} · {relativeDate(imp.created_at)}
+            </span>
+            <Button variant="outline" size="sm" disabled={loadingId === imp.id} onClick={() => onLoad(imp.id)}>
+              {loadingId === imp.id ? <Loader2 className="size-3.5 animate-spin" /> : "Load"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => onDelete(imp.id)}>
+              <Trash2 className="text-muted-foreground size-3.5" />
+            </Button>
+          </div>
+        ))}
       </CardContent>
     </Card>
   )
@@ -288,7 +415,20 @@ export function ImportSymbols() {
   const [csvRows, setCsvRows] = useState<CsvRow[] | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [savedImports, setSavedImports] = useState<SavedImportSummary[]>([])
+  const [loadingId, setLoadingId] = useState<string | null>(null)
+  const [importVersion, setImportVersion] = useState(0)   // bump on each new import -> fresh SaveBar
+  const { watchlist, toggleWatchlist } = useWatchlist()
+  const [saveBarName, setSaveBarName] = useState(defaultImportName())
+
   const symbols = parseSymbolInput(text)
+
+  function refreshSaved() {
+    api.listImports().then((r) => r && setSavedImports(r)).catch(() => {})
+  }
+  useEffect(refreshSaved, [])
 
   async function doImport() {
     if (symbols.length === 0) return
@@ -297,6 +437,9 @@ export function ImportSymbols() {
     try {
       setResult(await api.lookupSymbols(symbols))
       setCsvRows(null)
+      setSaved(false)
+      setSaveBarName(defaultImportName())
+      setImportVersion((v) => v + 1)
       setOpen(false)
     } catch (e) {
       setError(String(e))
@@ -318,9 +461,61 @@ export function ImportSymbols() {
       }
       setCsvRows(rows)     // renders straight from the file, no lookup
       setResult(null)
+      setSaved(false)
+      setSaveBarName(defaultImportName())
+      setImportVersion((v) => v + 1)
       setOpen(false)
     } catch {
       setError("Couldn't read that file.")
+    }
+  }
+
+  async function doSave(name: string) {
+    const rows = csvRows ?? result?.rows
+    const source = csvRows ? "csv" : "paste"
+    if (!rows || rows.length === 0) return
+    setSaving(true)
+    try {
+      await api.saveImport(name, source, rows)
+      setSaved(true)
+      refreshSaved()
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function doLoad(id: string) {
+    setLoadingId(id)
+    setError(null)
+    try {
+      const doc = await api.getImport(id)
+      if (!doc) return
+      if (doc.source === "csv") {
+        setCsvRows(doc.rows as unknown as CsvRow[])
+        setResult(null)
+      } else {
+        setResult({ requested: doc.rows.length, found: doc.rows.length, not_found: [],
+                   rows: doc.rows as unknown as ImportedSymbol[] })
+        setCsvRows(null)
+      }
+      setSaved(true)   // already saved, this is the saved copy
+      setSaveBarName(doc.name)
+      setImportVersion((v) => v + 1)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setLoadingId(null)
+    }
+  }
+
+  async function doDelete(id: string) {
+    try {
+      await api.deleteImport(id)
+      refreshSaved()
+    } catch (e) {
+      setError(String(e))
     }
   }
 
@@ -376,14 +571,24 @@ export function ImportSymbols() {
 
       {error && !open && <p className="text-sm text-red-600 dark:text-red-400">Problem: {error}</p>}
 
-      {csvRows && csvRows.length > 0 && <CsvTable rows={csvRows} />}
-      {result && result.rows.length > 0 && <LookupTable result={result} />}
+      {(csvRows?.length || result?.rows.length) ? (
+        <SaveBar key={importVersion} suggestedName={saveBarName} onSave={doSave} saving={saving} saved={saved} />
+      ) : null}
+
+      {csvRows && csvRows.length > 0 && (
+        <CsvTable rows={csvRows} watchlist={watchlist} onToggleWatchlist={toggleWatchlist} />
+      )}
+      {result && result.rows.length > 0 && (
+        <LookupTable result={result} watchlist={watchlist} onToggleWatchlist={toggleWatchlist} />
+      )}
 
       {result && result.not_found.length > 0 && (
         <p className="text-muted-foreground text-xs">
           Not found in our data: {result.not_found.join(", ")}
         </p>
       )}
+
+      <SavedImportsList imports={savedImports} onLoad={doLoad} onDelete={doDelete} loadingId={loadingId} />
     </div>
   )
 }
